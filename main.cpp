@@ -24,12 +24,26 @@ unsigned char* new_data;
 
 set<flow> flow_check;
 
-void serch_flow(class flow check, struct in_addr dst, struct in_addr src){
+int insert_flow(class flow check){
+	flow_check.insert(check);               //insert check
+        check.reverse_flow();
+        check.ip_src = after_ip;
+        flow_check.insert(check);               //insert reverse check(change before -> after)
+
+	return 1;
+}
+
+int search_flow(class flow check, struct in_addr dst, struct in_addr src){
 	set<flow>::iterator iter = flow_check.find(check);
 	if(iter != flow_check.end()) {
-		if(before_ip == check.ip_dst) memcpy(&dst, &after_ip, sizeof(after_ip));
+		if(before_ip == check.ip_dst) {
+			memcpy(&dst, &after_ip, sizeof(after_ip));
+			insert_flow(check);
+		}
 		if(after_ip == check.ip_src) memcpy(&src, &before_ip, sizeof(before_ip));
+		return 1;
 	}
+	return 0;
 }
 
 static u_int32_t print_pkt (struct nfq_data *tb)
@@ -48,6 +62,8 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 	if(ret >= 0) {
 		flag = 0;
 		new_data = data;
+		new_data_len = ret;
+
 		struct libnet_ipv4_hdr* ipH = (struct libnet_ipv4_hdr *) data;
 
 		class flow check;
@@ -55,42 +71,23 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 		memcpy(&check.ip_dst, &ipH->ip_dst, sizeof(ipH->ip_dst));
 		memcpy(&check.ip_src, &ipH->ip_src, sizeof(ipH->ip_src));
 
-
-		if(ipH->ip_p == 6) {
+		if(ipH->ip_p == 6 && (check.ip_dst == before_ip || check.ip_src == after_ip)) {
 			struct libnet_tcp_hdr* tcpH = (struct libnet_tcp_hdr*) new_data+(ipH->ip_hl)*4;
 			check.sport = tcpH->th_sport;
 			check.dport = tcpH->th_dport;
 
-			serch_flow(check, ipH->ip_dst, ipH->ip_src);
+			if(check.ip_dst == before_ip) insert_flow(check);
+			set<flow>::iterator iter = flow_check.find(check);
+		        if(iter != flow_check.end()) {
+                		if(before_ip == check.ip_dst) memcpy(&ipH->ip_dst, &after_ip, sizeof(ipH->ip_dst));
+                		if(after_ip == check.ip_src) memcpy(&ipH->ip_src, &before_ip, sizeof(ipH->ip_src));
+				calIPChecksum(new_data);
+				calTCPChecksum(new_data, ret);
 
-			memcpy(new_data, ipH, (ipH->ip_hl)*4);
-			calIPChecksum(new_data);
-			memcpy(new_data+(ipH->ip_hl)*4, tcpH, ret-(ipH->ip_hl)*4);
-			calTCPChecksum(new_data, ret);
+				flag = 1;
+		        }
 
-			flag = 1;
 		}
-		if(ipH->ip_p == 17) {
-			struct libnet_udp_hdr* udpH = (struct libnet_udp_hdr*) new_data+(ipH->ip_hl)*4;
-			check.sport = udpH->uh_sport;
-                        check.dport = udpH->uh_dport;
-
-			serch_flow(check, ipH->ip_dst, ipH->ip_src);
-
-			memcpy(new_data, ipH, (ipH->ip_hl)*4);
-			calIPChecksum(new_data);
-			memcpy(new_data+(ipH->ip_hl)*4, udpH, ret-(ipH->ip_hl)*4);
-			calUDPChecksum(new_data, ret);
-
-			flag = 1;
-		}
-
-		new_data_len = ret;
-
-		flow_check.insert(check);		//insert check
-		check.reverse_flow();
-		check.ip_src = after_ip;
-		flow_check.insert(check);		//insert reverse check(change before -> after)
 	}
 
 	return id;
