@@ -33,19 +33,6 @@ int insert_flow(class flow check){
 	return 1;
 }
 
-int search_flow(class flow check, struct in_addr dst, struct in_addr src){
-	set<flow>::iterator iter = flow_check.find(check);
-	if(iter != flow_check.end()) {
-		if(before_ip == check.ip_dst) {
-			memcpy(&dst, &after_ip, sizeof(after_ip));
-			insert_flow(check);
-		}
-		if(after_ip == check.ip_src) memcpy(&src, &before_ip, sizeof(before_ip));
-		return 1;
-	}
-	return 0;
-}
-
 static u_int32_t print_pkt (struct nfq_data *tb)
 {
 	int id = 0;
@@ -62,7 +49,6 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 	if(ret >= 0) {
 		flag = 0;
 		new_data = data;
-		new_data_len = ret;
 
 		struct libnet_ipv4_hdr* ipH = (struct libnet_ipv4_hdr *) data;
 
@@ -84,6 +70,7 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 				calIPChecksum(new_data);
 				calTCPChecksum(new_data, ret);
 
+				new_data_len = ret;
 				flag = 1;
 		        }
 
