@@ -24,15 +24,6 @@ unsigned char* new_data;
 
 set<flow> flow_check;
 
-int insert_flow(class flow check){
-	flow_check.insert(check);               //insert check
-        check.reverse_flow();
-        check.ip_src = after_ip;
-        flow_check.insert(check);               //insert reverse check(change before -> after)
-
-	return 1;
-}
-
 static u_int32_t print_pkt (struct nfq_data *tb)
 {
 	int id = 0;
@@ -51,29 +42,38 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 		new_data = data;
 
 		struct libnet_ipv4_hdr* ipH = (struct libnet_ipv4_hdr *) data;
+		data += ipH->ip_hl*4;
 
-		class flow check;
+		struct flow check;
 
 		memcpy(&check.ip_dst, &ipH->ip_dst, sizeof(ipH->ip_dst));
 		memcpy(&check.ip_src, &ipH->ip_src, sizeof(ipH->ip_src));
 
-		if(ipH->ip_p == 6 && (check.ip_dst == before_ip || check.ip_src == after_ip)) {
-			struct libnet_tcp_hdr* tcpH = (struct libnet_tcp_hdr*) new_data+(ipH->ip_hl)*4;
-			check.sport = tcpH->th_sport;
-			check.dport = tcpH->th_dport;
+		if(ipH->ip_p == 6) {
+			cout << "1. ret  = " << ret << endl;
+			struct libnet_tcp_hdr* tcpH = (struct libnet_tcp_hdr*) data;
 
-			if(check.ip_dst == before_ip) insert_flow(check);
-			set<flow>::iterator iter = flow_check.find(check);
+			if(check.ip_dst == before_ip) flow_check.insert(check);
+			set<flow>::iterator iter, r_iter;
+			iter = flow_check.find(check);
+			check.ip_src = before_ip;
+			check.reverse_flow();
+			r_iter = flow_check.find(check);
+
+			flag = 1;
 		        if(iter != flow_check.end()) {
-                		if(before_ip == check.ip_dst) memcpy(&ipH->ip_dst, &after_ip, sizeof(ipH->ip_dst));
-                		if(after_ip == check.ip_src) memcpy(&ipH->ip_src, &before_ip, sizeof(ipH->ip_src));
+				memcpy(&ipH->ip_dst, &after_ip, sizeof(ipH->ip_dst));
 				calIPChecksum(new_data);
 				calTCPChecksum(new_data, ret);
-
 				new_data_len = ret;
-				flag = 1;
+			}
+			else if (r_iter != flow_check.end()) {
+				memcpy(&ipH->ip_src, &before_ip, sizeof(ipH->ip_src));
+				calIPChecksum(new_data);
+				calTCPChecksum(new_data, ret);
+				new_data_len = ret;
 		        }
-
+			else flag = 0;
 		}
 	}
 
@@ -88,7 +88,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     if(flag == 0)
     	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
     else {
-	cout << "change!" << endl;
+	cout << "change!" << endl << endl;
 	return nfq_set_verdict(qh, id, NF_ACCEPT, new_data_len, new_data);
     }
 }
